@@ -55,4 +55,16 @@ public class Throttle4jProperties {
     public void setRefillDuration(Duration refillDuration) {
         this.refillDuration = refillDuration;
     }
+
+    public static class Metrics {
+        private boolean enabled = false;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+    }
 }
