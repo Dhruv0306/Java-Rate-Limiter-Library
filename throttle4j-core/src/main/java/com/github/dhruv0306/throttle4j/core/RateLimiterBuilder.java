@@ -8,6 +8,7 @@ public class RateLimiterBuilder {
     private long capacity = 10;
     private long refillTokens = 10;
     private Duration refillDuration = Duration.ofSeconds(1);
+    private RateLimiterListener listener = null;
 
     // Package-private constructor: only accessible via RateLimiter.builder()
     RateLimiterBuilder() {
@@ -32,11 +33,16 @@ public class RateLimiterBuilder {
         return this;
     }
 
+    public RateLimiterBuilder listener(RateLimiterListener listener) {
+        this.listener = listener;
+        return this;
+    }
+
     public RateLimiter build() {
         return switch (algorithm) {
-            case TOKEN_BUCKET -> new TokenBucketLimiter(capacity, refillTokens, refillDuration);
-            case FIXED_WINDOW -> new FixedWindowLimiter(capacity, refillDuration);
-            case SLIDING_WINDOW_LOG -> new SlidingWindowLogLimiter(capacity, refillDuration);
+            case TOKEN_BUCKET -> new TokenBucketLimiter(capacity, refillTokens, refillDuration, listener);
+            case FIXED_WINDOW -> new FixedWindowLimiter(capacity, refillDuration, listener);
+            case SLIDING_WINDOW_LOG -> new SlidingWindowLogLimiter(capacity, refillDuration, listener);
         };
     }
 }

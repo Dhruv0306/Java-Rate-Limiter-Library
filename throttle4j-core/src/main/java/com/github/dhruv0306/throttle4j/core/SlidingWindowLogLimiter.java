@@ -12,10 +12,12 @@ class SlidingWindowLogLimiter implements RateLimiter {
     private final int maxLogSize;
     private final ConcurrentLinkedDeque<Long> timestamps;
     private final AtomicInteger size;
+    private final RateLimiterListener listener;
 
-    SlidingWindowLogLimiter(long maxRequests, Duration windowDuration) {
+    SlidingWindowLogLimiter(long maxRequests, Duration windowDuration, RateLimiterListener listener) {
         this.maxRequests = maxRequests;
         this.windowNanos = windowDuration.toNanos();
+        this.listener = listener;
         // OOM guard: hard cap prevents unbounded deque growth under malicious load
         this.maxLogSize = (int) Math.min(maxRequests * 2, Integer.MAX_VALUE);
         this.timestamps = new ConcurrentLinkedDeque<>();
@@ -28,18 +30,26 @@ class SlidingWindowLogLimiter implements RateLimiter {
         evictExpired(now);
 
         // OOM guard: reject immediately if deque exceeds hard safety boundary
-        if (size.get() >= maxLogSize) return false;
+        if (size.get() >= maxLogSize) {
+            if (listener != null) listener.onPermitRejected();
+            return false;
+        }
 
         // Check if within normal rate limit
-        if (size.get() >= maxRequests) return false;
+        if (size.get() >= maxRequests) {
+            if (listener != null) listener.onPermitRejected();
+            return false;
+        }
         timestamps.addLast(now);
         int current = size.incrementAndGet();
         // Roll back if another thread raced past the check
         if (current > maxRequests) {
             timestamps.pollLast();
             size.decrementAndGet();
+            if (listener != null) listener.onPermitRejected();
             return false;
         }
+        if (listener != null) listener.onPermitAcquired();
         return true;
     }
 
@@ -47,6 +57,7 @@ class SlidingWindowLogLimiter implements RateLimiter {
     public void acquire() {
         while (!tryAcquire()) {
             LockSupport.parkNanos(windowNanos / maxRequests);
+            if (listener != null) listener.onWait(windowNanos / maxRequests);
         }
     }
 

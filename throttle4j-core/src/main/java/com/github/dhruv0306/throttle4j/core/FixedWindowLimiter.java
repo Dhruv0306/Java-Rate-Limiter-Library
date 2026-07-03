@@ -10,12 +10,14 @@ class FixedWindowLimiter implements RateLimiter {
     private final long windowNanos;
     private final AtomicLong counter;
     private final AtomicLong windowStart;
+    private final RateLimiterListener listener;
 
-    FixedWindowLimiter(long maxRequests, Duration windowDuration) {
+    FixedWindowLimiter(long maxRequests, Duration windowDuration, RateLimiterListener listener) {
         this.maxRequests = maxRequests;
         this.windowNanos = windowDuration.toNanos();
         this.counter = new AtomicLong(0);
         this.windowStart = new AtomicLong(System.nanoTime());
+        this.listener = listener;
     }
 
     @Override
@@ -26,13 +28,18 @@ class FixedWindowLimiter implements RateLimiter {
         if (now - start >= windowNanos) {
             if (windowStart.compareAndSet(start, now)) {
                 counter.set(1);
+                if (listener != null) listener.onPermitAcquired();
                 return true;
             }
         }
         // Optimistically increment, then roll back if over limit
         long current = counter.incrementAndGet();
-        if (current <= maxRequests) return true;
+        if (current <= maxRequests) {
+            if (listener != null) listener.onPermitAcquired();
+            return true;
+        }
         counter.decrementAndGet();
+        if (listener != null) listener.onPermitRejected();
         return false;
     }
 
@@ -42,7 +49,10 @@ class FixedWindowLimiter implements RateLimiter {
         while (!tryAcquire()) {
             long start = windowStart.get();
             long remaining = windowNanos - (System.nanoTime() - start);
-            if (remaining > 0) LockSupport.parkNanos(remaining);
+            if (remaining > 0) {
+                LockSupport.parkNanos(remaining);
+                if (listener != null) listener.onWait(remaining);
+            }
         }
     }
 

@@ -11,13 +11,15 @@ class TokenBucketLimiter implements RateLimiter {
     private final long refillNanos;
     private final AtomicLong tokens;
     private final AtomicLong lastRefillTime;
+    private final RateLimiterListener listener;
 
-    TokenBucketLimiter(long capacity, long refillTokens, Duration refillDuration) {
+    TokenBucketLimiter(long capacity, long refillTokens, Duration refillDuration, RateLimiterListener listener) {
         this.capacity = capacity;
         this.refillTokens = refillTokens;
         this.refillNanos = refillDuration.toNanos();
         this.tokens = new AtomicLong(capacity);
         this.lastRefillTime = new AtomicLong(System.nanoTime());
+        this.listener = listener;
     }
 
     @Override
@@ -25,8 +27,14 @@ class TokenBucketLimiter implements RateLimiter {
         refill();
         while (true) {
             long current = tokens.get();
-            if (current <= 0) return false;
-            if (tokens.compareAndSet(current, current - 1)) return true;
+            if (current <= 0) {
+                if (listener != null) listener.onPermitRejected();
+                return false;
+            }
+            if (tokens.compareAndSet(current, current - 1)) {
+                if (listener != null) listener.onPermitAcquired();
+                return true;
+            }
         }
     }
 
@@ -34,6 +42,7 @@ class TokenBucketLimiter implements RateLimiter {
     public void acquire() {
         while (!tryAcquire()) {
             LockSupport.parkNanos(refillNanos / refillTokens);
+            if (listener != null) listener.onWait(refillNanos / refillTokens);
         }
     }
 
